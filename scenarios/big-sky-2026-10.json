@@ -1,0 +1,37 @@
+{
+  "name": "Big Sky SITREP 9-15 Oct 2026, non-encrypted channels",
+  "source": "https://claude.ai/code/artifact/83a4edeb-cf8d-4c01-837b-19f592b75be0",
+  "channels": [
+    { "name": "2M CALL", "rxMhz": 146.520, "notes": "National 2 m FM calling frequency" },
+    { "name": "70CMCAL", "rxMhz": 446.000, "notes": "National 70 cm FM calling frequency" },
+    { "name": "BIG SKY", "rxMhz": 146.820, "offsetMhz": -0.6, "tone": "82.5", "notes": "Big Sky 2 m repeater" },
+    { "name": "BRIDGER", "rxMhz": 146.880, "offsetMhz": -0.6, "tone": "100.0", "notes": "Gallatin Ham Radio Club, Tuesday net 20:00" },
+    { "name": "SHERIFF", "rxMhz": 154.680, "notes": "SW Montana sheriffs, FM conventional" },
+    { "name": "INTERAG", "rxMhz": 158.790, "notes": "Gallatin / Madison interagency, Big Sky Fire/EMS" },
+    { "name": "NOAA 1", "rxMhz": 162.400, "notes": "NOAA Weather Radio" },
+    { "name": "NOAA 2", "rxMhz": 162.475, "notes": "NOAA Weather Radio" },
+    { "name": "NOAA 3", "rxMhz": 162.550, "notes": "NOAA Weather Radio" },
+    { "name": "MURS 1", "rxMhz": 151.820, "narrow": true },
+    { "name": "MURS 2", "rxMhz": 151.880, "narrow": true },
+    { "name": "MURS 3", "rxMhz": 151.940, "narrow": true },
+    { "name": "MURS 4", "rxMhz": 154.570 },
+    { "name": "MURS 5", "rxMhz": 154.600 },
+    { "name": "FRS 1", "rxMhz": 462.5625, "narrow": true },
+    { "name": "FRS 2", "rxMhz": 462.5875, "narrow": true },
+    { "name": "FRS 3", "rxMhz": 462.6125, "narrow": true },
+    { "name": "GMRS 15", "rxMhz": 462.550, "notes": "GMRS repeater output 15" },
+    { "name": "GMRS 16", "rxMhz": 462.575 },
+    { "name": "GMRS 17", "rxMhz": 462.600 },
+    { "name": "GMRS 18", "rxMhz": 462.625 },
+    { "name": "GMRS 19", "rxMhz": 462.650 },
+    { "name": "GMRS 20", "rxMhz": 462.675 },
+    { "name": "GMRS 21", "rxMhz": 462.700 },
+    { "name": "GMRS 22", "rxMhz": 462.725 }
+  ],
+  "sweeps": [
+    { "name": "VHF public safety", "startHz": 150e6, "stopHz": 160e6, "rbwKhz": 10 },
+    { "name": "NOAA", "startHz": 162.3e6, "stopHz": 162.6e6, "rbwKhz": 10 },
+    { "name": "70 cm amateur", "startHz": 440e6, "stopHz": 450e6, "rbwKhz": 10 },
+    { "name": "FRS/GMRS", "startHz": 462e6, "stopHz": 468e6, "rbwKhz": 10 }
+  ]
+}
