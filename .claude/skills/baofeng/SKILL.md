@@ -1,6 +1,6 @@
 ---
 name: baofeng
-description: Operate the Baofeng UV-5R on the bench through the `baofeng` CLI and the AIOC cable, with JSON output. Use when the user mentions the Baofeng, the UV-5R, the AIOC, tuning or keying the radio, a memory channel, CTCSS or DCS tones, repeater offsets, PTT, or backing up the radio.
+description: Operate the Baofeng UV-5R on the bench through the `baofeng` CLI and the AIOC cable, with JSON output. Use when the user mentions the Baofeng, the UV-5R, the AIOC, tuning or keying the radio, a memory channel, CTCSS or DCS tones, repeater offsets, PTT, backing up the radio, menu settings, voice or beep, squelch, listening to receive audio, or audio levels.
 ---
 
 # baofeng
@@ -37,7 +37,17 @@ baofeng read 5
 baofeng key --seconds 2
 baofeng dump --out radio.img
 baofeng restore radio.img --force
+baofeng settings
+baofeng settings voice eng beep on
+baofeng listen --seconds 5
 ```
+
+`status` reports `squelch`, `voice`, `beep` and `abr`. `voice off` or `beep off` mutes receive
+audio on this firmware: set them back with `settings`, then ask the human to power cycle
+the radio. `listen` reports dBFS from the AIOC. The bare AIOC floor at 1x gain reads about
+-66; open-squelch static reads well above -30. Seconds of digital zero come back as `null`
+in `rmsDbfs` and count in `zeroSeconds`. Denied microphone permission for the terminal is
+one cause.
 
 Frequencies in MHz, 136-174 or 400-520. Tones: `82.5`, `D023`, `D023I`, `none`.
 `scenarios/big-sky-2026-10.json` holds the Big Sky channel list and sweep windows.

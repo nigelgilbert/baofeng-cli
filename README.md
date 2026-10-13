@@ -19,8 +19,9 @@ node src/main.ts status
 ## How the radio takes a frequency
 
 The radio speaks the CHIRP clone protocol over the AIOC's serial port at 9600 baud.
-On firmware HN5RV011 the radio acks writes to channel select, work mode, display mode and
-the VFO, then ignores them. The CLI does not offer those writes.
+On firmware HN5RV011 the radio acks writes to channel select, work mode and the VFO, then
+ignores them. The CLI does not offer those writes. An early version of this CLI wrote one
+half of the menu settings block and the radio zeroed the block, which muted receive audio.
 
 `tune` writes the memory channel the radio is parked on:
 
@@ -30,9 +31,9 @@ the VFO, then ignores them. The CLI does not offer those writes.
    frequency is live about 3 s after the command ends.
 
 Name the channel after the frequency; with menu 21 MDF-A on NAME the display then shows
-it. Audio capture through the AIOC sound card would make the receiver check automatic;
-macOS blocks microphone access for the terminal until it is granted in System Settings,
-Privacy & Security, Microphone.
+it. `listen` captures receive audio through the AIOC sound card with ffmpeg and reports
+levels, so the receiver check is one command; macOS blocks microphone access for the
+terminal until it is granted in System Settings, Privacy & Security, Microphone.
 
 A clone session ends after 2.5 s of silence, so every verb does its work in one quick
 session. Do not open, `cat` or `screen` the serial port while a verb runs.
@@ -40,7 +41,7 @@ session. Do not open, `cat` or `screen` the serial port while a verb runs.
 ## Verbs
 
 ```sh
-baofeng status                                # firmware, channel A/B, active channel record
+baofeng status                                # firmware, channel A/B, audio settings, active channel record
 baofeng tune 154.680 --channel 5              # write 154.680 into channel 5
 baofeng tune 146.820 --channel 5 --offset -0.6 --tone 82.5 --name "BIG SKY"
 baofeng tune 462.5625 --channel 5 --narrow --low-power
@@ -48,6 +49,9 @@ baofeng read 5                                # read channel record 5
 baofeng key --seconds 2                       # DTR high, RTS low; releases on exit or Ctrl-C
 baofeng dump --out radio.img                  # full image, CHIRP layout, about 14 s
 baofeng restore radio.img --force             # main memory back from an image, about 30 s
+baofeng settings                              # squelch, save, abr, beep, timeout, voice, mdfa, mdfb
+baofeng settings voice eng beep on            # set fields, commit, verify in a fresh session
+baofeng listen --seconds 5                    # capture RX audio through ffmpeg, report dBFS
 baofeng help                                  # list verbs, flags and exit codes
 ```
 
@@ -65,9 +69,10 @@ Options:
 | `--narrow` | 12.5 kHz bandwidth |
 | `--low-power` | low power |
 | `--name TEXT` | channel name, 7 characters, default the frequency |
-| `--seconds S` | `key`: seconds to transmit, up to 60, required |
+| `--seconds S` | `key`: seconds to transmit, up to 60, required. `listen`: whole seconds to capture, 1..600 |
 | `--out FILE` | `dump`: image path; default `uv5r-YYYY-MM-DDTHH-MM-SS.img` in the working directory |
 | `--force` | `restore`: confirm the bulk write, required |
+| `--device NAME` | `listen`: avfoundation audio input by name or index, default `AIOC Audio`. List inputs with `ffmpeg -f avfoundation -list_devices true -i ""` |
 
 Frequencies take MHz (`154.680`), Hz (`154680000`) or exponent form (`154.68e6`) and lie
 in 136-174 or 400-520 MHz.
@@ -79,14 +84,33 @@ Output is JSON when stdout is a pipe or `--json` is given, and text on a TTY or 
 carry `kind` and `message`.
 
 `status` returns one flat object: `firmware`, `workmode` (`vfo` or `channel`), `channelA`,
-`channelB`, `channel`, then the record fields `rxMhz`, `txMhz`, `txTone`, `rxTone`,
-`bandwidth`, `power` and `name`. `txMhz` is `null` for a receive-only channel. An empty
-record gives `"empty": true` in place of the record fields. The `note` field always reads
-"channelA/B are the values stored in EEPROM; the radio display shows the channel the knob
-selected". Trust the display for the active channel.
+`channelB`, `squelch`, `voice`, `beep`, `abr`, `channel`, then the record fields `rxMhz`,
+`txMhz`, `txTone`, `rxTone`, `bandwidth`, `power` and `name`. `txMhz` is `null` for a
+receive-only channel. An empty record gives `"empty": true` in place of the record fields.
+The `note` field always reads "channelA/B are the values stored in EEPROM; the radio
+display shows the channel the knob selected". Trust the display for the active channel.
 
 `tune` returns the written record plus `"appliesAfterSeconds": 3`. `read` returns the
 record, or `{"channel": N, "empty": true}`.
+
+`settings` with no arguments returns the eight fields. With `field value` pairs it writes
+and commits the block, waits for the reload, reads it back in a fresh session and returns
+the verified fields; a mismatch is a device-state error. Values are the radio's menu index
+or a name: `voice off|eng|chi`, `beep off|on`, `mdfa`/`mdfb` `freq|ch|name`,
+`squelch 0..9`, `save 0..4`, `abr 0..5`, `timeout 0..39` (15 s steps). Voice and beep set
+to off mute receive audio on this firmware; after turning them back on, power cycle the
+radio. `settings` restores only its eight fields; bring back a zeroed block in full with
+`restore` from an image.
+
+`restore` verifies the settings block the same way and returns the fields it read back.
+
+`listen` runs `ffmpeg -f avfoundation -i ":AIOC Audio"` for `--seconds` at 48 kHz mono,
+removes DC with a 50 Hz high-pass and returns `rmsDbfs` per second, `meanRmsDbfs`,
+`peakDbfs` and `zeroSeconds`. A second of digital zero reads `null` in `rmsDbfs` and counts
+in `zeroSeconds`. `meanRmsDbfs` and `peakDbfs` are `null` when every second is zero. Denied
+microphone access gives digital zero. The AIOC's bare ADC floor at 1x gain reads about
+-66 dBFS; open-squelch static reads well above -30. An ffmpeg error exit, or fewer whole
+seconds captured than requested, is a transport error.
 
 If the handshake gets no ack, the CLI waits 3 s and retries it once. This covers a clone
 session still closing from the previous verb.
@@ -109,11 +133,17 @@ Measured on a UV-5R with firmware HN5RV011, ident `aa 30 76 04 00 05 20 dd`, AIO
   echoes the requested address in the header.
 - Writes: `X addr16 len data` in one burst, 16 bytes, aligned; reply `06`. Every write is
   acked. Writes land in channel memory and names. Writes to the VFO region at
-  `0x0F08..0x0F3F`, the display mode bytes at `0x0E35..0x0E36` and the channel selection
-  at `0x0E4C`, `0x0E76..0x0E77` are ignored; `0x0E20..0x0E3F` reads differently from one
-  session to the next.
-- Reads of the settings page during a session return the values the radio loaded at its
-  last reload, so a write there reads back unchanged until the next session.
+  `0x0F08..0x0F3F` and the channel selection at `0x0E4C`, `0x0E76..0x0E77` are ignored.
+- Settings block `0x0E20..0x0E3F`: 16-byte writes at `0x0E20` and `0x0E30` go into a
+  32-byte staging buffer that starts zero-filled each session. A 16-byte write at `0x0E40`
+  commits the buffer to EEPROM. A lone write at `0x0E20`, `0x0E30`, a 32-byte write at
+  `0x0E20` or a 64-byte write at `0x0E00` is acked and dropped. Writing one half and then
+  `0x0E40` commits zeros over the other half. `restore` writes the page in order, so it
+  commits; `settings` writes both halves then `0x0E40` unchanged.
+- Reads of `0x0E00..0x0E7F` during a session return the values the radio loaded at its
+  last reload. A 16-byte read at `0x0E10`, `0x0E20`, `0x0E30` or `0x0E40` returns the
+  `0x0E40` record. 64-byte reads at `0x0E00` and `0x0E40` avoid that alias and still return
+  the reload snapshot, so a settings write reads back unchanged until the next session.
 - After a reload the settings page reads back the written channel A/B value while the
   display shows the knob channel.
 - The session drops after 2.5 s without a command. A second handshake inside a live
@@ -141,4 +171,5 @@ npm test
 ```
 
 `test/fake.ts` is an in-memory radio with the bench behaviour: aligned reads, acked writes,
-VFO writes ignored, settings reload on session drop.
+VFO writes ignored, settings reload on session drop, the 16-byte read alias in
+`0x0E10..0x0E4F`, and the staged settings block committed by a write at `0x0E40`.
