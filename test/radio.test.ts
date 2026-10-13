@@ -95,6 +95,10 @@ describe('status', () => {
       workmode: 'vfo',
       channelA: 0x7f,
       channelB: 5,
+      squelch: 3,
+      voice: 'eng',
+      beep: 'on',
+      abr: 5,
       channel: 5,
       rxMhz: '154.68',
       txMhz: '154.68',
@@ -114,5 +118,14 @@ describe('status', () => {
     const st = await readStatus(s);
     expect(st).toMatchObject({ channel: 0x7f, empty: true, note: STATUS_NOTE });
     expect(st).not.toHaveProperty('rxMhz');
+  });
+  it('reads work mode and a zeroed settings block despite the 16-byte read alias', async () => {
+    const radio = new FakeRadio();
+    radio.eeprom[ADDR.workmode] = 1;
+    radio.eeprom.fill(0, 0x0e20, 0x0e40);
+    const s = new Session(radio);
+    await s.start();
+    const st = await readStatus(s);
+    expect(st).toMatchObject({ workmode: 'channel', squelch: 0, voice: 'off', beep: 'off', abr: 0 });
   });
 });

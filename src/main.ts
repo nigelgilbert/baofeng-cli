@@ -1,10 +1,37 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs';
 import { checkFlags, numberFlag, parseArgs, parseDecimal, stringFlag, type ParsedArgs } from './args.ts';
-import { checkBand, checkChannelNumber, parseFrequency, parseTone, type ChannelSpec } from './codec.ts';
+import { listen } from './audio.ts';
+import {
+  SETTING_NAMES,
+  checkBand,
+  checkChannelNumber,
+  isSettingName,
+  parseFrequency,
+  parseSettingValue,
+  parseTone,
+  settingValues,
+  type ChannelSpec,
+  type SettingName,
+  type Settings,
+} from './codec.ts';
 import { BaofengError, EXIT, UsageError, errorKind, exitCodeFor, signalExitCode } from './errors.ts';
 import { Session } from './protocol.ts';
-import { channelPayload, dumpImage, holdPtt, readChannel, readStatus, restoreImage, tune, type ChannelResult, type RadioStatus } from './radio.ts';
+import {
+  channelPayload,
+  dumpImage,
+  holdPtt,
+  imageSettingsBlock,
+  readChannel,
+  readSettings,
+  readStatus,
+  restoreImage,
+  tune,
+  verifySettingsInFreshSession,
+  writeSettings,
+  type ChannelResult,
+  type RadioStatus,
+} from './radio.ts';
 import { SerialTransport, resolveTarget, type Transport } from './transport.ts';
 
 interface Verb {
@@ -16,16 +43,20 @@ const BOOLEAN_FLAGS = new Set(['json', 'text', 'help', 'narrow', 'low-power', 'f
 const COMMON = ['json', 'text', 'target'];
 const TUNE_FLAGS = ['channel', 'offset', 'tone', 'rx-tone', 'narrow', 'low-power', 'name'];
 const MAX_KEY_SECONDS = 60;
+const MAX_LISTEN_SECONDS = 600;
+const DEFAULT_AUDIO_DEVICE = 'AIOC Audio';
 /** Seconds after the command ends until the radio reloads and applies a write. */
 const APPLIES_AFTER_SECONDS = 3;
 
 const verbs: Record<string, Verb> = {
-  status: { summary: 'Print firmware, work mode, stored channel numbers and the active record: status', run: statusVerb },
+  status: { summary: 'Print firmware, work mode, stored channel numbers, squelch, voice, beep, abr and the active record: status', run: statusVerb },
   tune: { summary: 'Write a frequency into the channel the radio shows: tune 154.680 --channel 5 --tone 82.5', run: tuneVerb },
   read: { summary: 'Print one channel record: read 5', run: readVerb },
   key: { summary: 'Key the transmitter for S seconds: key --seconds 2', run: keyVerb },
   dump: { summary: 'Save the full memory image: dump --out radio.img', run: dumpVerb },
   restore: { summary: 'Write the main memory of an image back: restore radio.img --force', run: restoreVerb },
+  settings: { summary: 'Print the menu settings, or set fields: settings voice eng beep on', run: settingsVerb },
+  listen: { summary: 'Capture receive audio from the AIOC and report dBFS: listen --seconds 5', run: listenVerb },
 };
 
 function helpText(): string {
@@ -48,9 +79,13 @@ function helpText(): string {
     '  --narrow           tune: 12.5 kHz bandwidth (default wide)',
     '  --low-power        tune: low TX power',
     '  --name TEXT        tune: channel name, 7 chars (default the frequency)',
-    '  --seconds S        key: hold time, 0 < S <= 60 (required)',
+    `  --seconds S        key: hold time, 0 < S <= ${MAX_KEY_SECONDS}; listen: capture time, whole number 1..${MAX_LISTEN_SECONDS} (required)`,
     '  --out FILE         dump: output path (default uv5r-YYYY-MM-DDTHH-MM-SS.img)',
     '  --force            restore: confirm a bulk write',
+    `  --device NAME      listen: avfoundation audio device (default ${DEFAULT_AUDIO_DEVICE})`,
+    '',
+    'settings fields, set by radio menu index or by name:',
+    ...SETTING_NAMES.map((name) => `  ${name.padEnd(8)} ${settingValues(name)}`),
     '',
     'exit codes: 0 ok, 1 unexpected, 2 usage, 3 transport, 4 timeout, 5 device-state, 6 busy, 128+signal key interrupted',
   ].join('\n');
@@ -106,9 +141,29 @@ function statusText(s: RadioStatus): string {
     `workmode   ${s.workmode}`,
     `channel A  ${s.channelA}`,
     `channel B  ${s.channelB}`,
+    `squelch    ${s.squelch}`,
+    `voice      ${s.voice}`,
+    `beep       ${s.beep}`,
+    `abr        ${s.abr}`,
     channelText(s),
     `note       ${s.note}`,
   ].join('\n');
+}
+
+function settingsText(s: Settings): string {
+  return SETTING_NAMES.map((name) => `${name.padEnd(8)} ${s[name]}`).join('\n');
+}
+
+/** Parse `field value` pairs from the settings positionals. */
+function settingsPatch(positionals: string[]): Partial<Record<SettingName, number>> {
+  if (positionals.length % 2 !== 0) throw new UsageError('settings takes field value pairs, as in: settings voice eng beep on');
+  const patch: Partial<Record<SettingName, number>> = {};
+  for (let i = 0; i < positionals.length; i += 2) {
+    const name = positionals[i]!;
+    if (!isSettingName(name)) throw new UsageError(`unknown setting ${JSON.stringify(name)}; fields: ${SETTING_NAMES.join(', ')}`);
+    patch[name] = parseSettingValue(name, positionals[i + 1]!);
+  }
+  return patch;
 }
 
 async function statusVerb(args: ParsedArgs): Promise<number> {
@@ -208,9 +263,47 @@ async function restoreVerb(args: ParsedArgs): Promise<number> {
     const blocks = await restoreImage(s, image, (addr) => {
       if (!json && addr % 0x400 === 0) process.stderr.write(`write 0x${addr.toString(16).padStart(4, '0')}\n`);
     });
-    return { file, blocks, appliesAfterSeconds: APPLIES_AFTER_SECONDS };
+    const settings = await verifySettingsInFreshSession(t, imageSettingsBlock(image));
+    return { file, blocks, settings };
   });
-  print(args, result, () => `wrote ${result.blocks} blocks from ${result.file}; applies about ${APPLIES_AFTER_SECONDS} s after this command ends`);
+  print(args, result, () => `wrote ${result.blocks} blocks from ${result.file}; settings verified\n${settingsText(result.settings)}`);
+  return EXIT.ok;
+}
+
+async function settingsVerb(args: ParsedArgs): Promise<number> {
+  checkFlags('settings', args.flags, COMMON);
+  const patch = settingsPatch(args.positionals);
+  const result = await withTransport(args.flags, async (t) => {
+    const s = new Session(t);
+    await s.start();
+    if (Object.keys(patch).length === 0) return readSettings(s);
+    return verifySettingsInFreshSession(t, await writeSettings(s, patch));
+  });
+  print(args, result, () => settingsText(result));
+  return EXIT.ok;
+}
+
+async function listenVerb(args: ParsedArgs): Promise<number> {
+  checkFlags('listen', args.flags, ['json', 'text', 'seconds', 'device']);
+  if (!args.flags.has('seconds')) throw new UsageError(`listen needs --seconds S (max ${MAX_LISTEN_SECONDS}), as in: listen --seconds 5`);
+  const seconds = numberFlag(args.flags, 'seconds')!;
+  if (!Number.isInteger(seconds) || seconds <= 0 || seconds > MAX_LISTEN_SECONDS) {
+    throw new UsageError(`--seconds takes a whole number 1..${MAX_LISTEN_SECONDS}; got ${seconds}`);
+  }
+  const device = stringFlag(args.flags, 'device') ?? DEFAULT_AUDIO_DEVICE;
+  const result = await listen(device, seconds);
+  // Print null levels as zero, since null marks digital zero.
+  const level = (db: number | null) => (db === null ? 'zero' : `${db} dBFS`);
+  print(args, result, () =>
+    [
+      `device     ${result.device}`,
+      `seconds    ${result.seconds}`,
+      `zero secs  ${result.zeroSeconds}`,
+      `mean rms   ${level(result.meanRmsDbfs)}`,
+      `peak       ${level(result.peakDbfs)}`,
+      `per second ${result.rmsDbfs.map((db) => db ?? 'zero').join(' ')}`,
+    ].join('\n'),
+  );
   return EXIT.ok;
 }
 

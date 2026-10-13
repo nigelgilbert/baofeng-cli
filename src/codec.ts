@@ -7,12 +7,12 @@ export const CHANNEL_BASE = 0x0000;
 export const NAME_BASE = 0x1000;
 export const CHANNEL_COUNT = 128;
 
-/** Radio addresses of the settings fields and the firmware block; CHIRP image offsets minus 8. */
+/** Radio addresses of the state page fields and the firmware block; CHIRP image offsets minus 8. */
 export const ADDR = {
-  settingsBlock: 0x0e40,
+  /** Start of the 64-byte page holding the flags, work mode and channel A/B numbers. */
+  statePage: 0x0e40,
   flags: 0x0e4a,
   workmode: 0x0e4c,
-  channelBlock: 0x0e70,
   mrcha: 0x0e76,
   mrchb: 0x0e77,
   firmwareBlock: 0x1ec0,
@@ -246,4 +246,80 @@ export function channelToJson(ch: Channel): ChannelJson {
 
 export function checkChannelNumber(n: number): void {
   if (!Number.isInteger(n) || n < 0 || n >= CHANNEL_COUNT) throw new UsageError(`channel must be 0..${CHANNEL_COUNT - 1}; got ${n}`);
+}
+
+/** Radio address of the CHIRP settings struct; the radio stages writes here until a write lands at SETTINGS_COMMIT. */
+export const SETTINGS_BASE = 0x0e20;
+export const SETTINGS_SIZE = 0x20;
+/** A 16-byte write at this address commits the staged settings block to EEPROM. */
+export const SETTINGS_COMMIT = 0x0e40;
+
+interface SettingField {
+  /** Byte offset from SETTINGS_BASE. */
+  offset: number;
+  /** Largest value the field takes. */
+  max: number;
+  /** Names for values 0..n, accepted on input and used on output. */
+  names?: readonly string[];
+}
+
+/** Settings fields the CLI reads and writes, from CHIRP's uv5r.py struct at image offset 0x0E28. */
+export const SETTINGS_FIELDS = {
+  squelch: { offset: 0x00, max: 9 },
+  save: { offset: 0x03, max: 4 },
+  abr: { offset: 0x06, max: 5 },
+  beep: { offset: 0x08, max: 1, names: ['off', 'on'] },
+  timeout: { offset: 0x09, max: 39 },
+  voice: { offset: 0x0e, max: 2, names: ['off', 'eng', 'chi'] },
+  mdfa: { offset: 0x15, max: 2, names: ['freq', 'ch', 'name'] },
+  mdfb: { offset: 0x16, max: 2, names: ['freq', 'ch', 'name'] },
+} as const satisfies Record<string, SettingField>;
+
+export type SettingName = keyof typeof SETTINGS_FIELDS;
+export const SETTING_NAMES = Object.keys(SETTINGS_FIELDS) as SettingName[];
+/** Decoded settings: named fields carry their name, the rest their number; an out-of-range byte stays a number. */
+export type Settings = Record<SettingName, number | string>;
+
+export function isSettingName(name: string): name is SettingName {
+  return Object.hasOwn(SETTINGS_FIELDS, name);
+}
+
+/** Decode the 32-byte block at SETTINGS_BASE. */
+export function decodeSettings(block: Uint8Array): Settings {
+  const out = {} as Settings;
+  for (const name of SETTING_NAMES) {
+    const field: SettingField = SETTINGS_FIELDS[name];
+    const v = block[field.offset] ?? 0xff;
+    out[name] = field.names?.[v] ?? v;
+  }
+  return out;
+}
+
+/** Accepted values for `name` as help text: 0..max, then its names when it has them. */
+export function settingValues(name: SettingName): string {
+  const field: SettingField = SETTINGS_FIELDS[name];
+  return field.names ? `0..${field.max} ${field.names.join('|')}` : `0..${field.max}`;
+}
+
+/** Parse a value for `name`: one of its names, or an integer 0..max. */
+export function parseSettingValue(name: SettingName, text: string): number {
+  const field: SettingField = SETTINGS_FIELDS[name];
+  const t = text.trim().toLowerCase();
+  const named = field.names?.indexOf(t) ?? -1;
+  if (named >= 0) return named;
+  const n = /^\d+$/.test(t) ? Number(t) : NaN;
+  if (!Number.isInteger(n) || n > field.max) {
+    const accepted = field.names ? `${field.names.join(', ')} or 0..${field.max}` : `0..${field.max}`;
+    throw new UsageError(`${name} takes ${accepted}; got ${JSON.stringify(text)}`);
+  }
+  return n;
+}
+
+/** Copy `block` and set each field in `patch`. */
+export function applySettings(block: Uint8Array, patch: Partial<Record<SettingName, number>>): Uint8Array {
+  const out = Uint8Array.from(block);
+  for (const [name, value] of Object.entries(patch) as [SettingName, number][]) {
+    out[SETTINGS_FIELDS[name].offset] = value;
+  }
+  return out;
 }

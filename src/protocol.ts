@@ -19,6 +19,8 @@ const HANDSHAKE_ATTEMPTS = 2;
 const HANDSHAKE_RETRY_MS = SETTLE_MS;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Wait for the radio to drop the clone session and reload its settings from EEPROM. */
+export const settle = (): Promise<void> => sleep(SETTLE_MS);
 export const hex = (a: Uint8Array | number[]): string => [...a].map((b) => b.toString(16).padStart(2, '0')).join(' ');
 
 export interface Ident {
@@ -94,7 +96,12 @@ export class Session {
     this.commands++;
   }
 
-  /** Read `size` bytes at `addr`; the radio serves 16-byte aligned blocks, so pass aligned addresses. */
+  /**
+   * Read `size` bytes at `addr`; the radio serves 16-byte aligned blocks, so pass aligned addresses.
+   * A 16-byte read in 0x0E10..0x0E4F returns the 0x0E40 record; read that page with 64 bytes.
+   * Reads of 0x0E00..0x0E7F return the values loaded at the last reload, so a write there
+   * reads back unchanged until the next session.
+   */
   async readBlock(addr: number, size: number): Promise<Uint8Array> {
     const first = this.commands === 0;
     this.touch();
@@ -114,7 +121,11 @@ export class Session {
     return data;
   }
 
-  /** Write one 16-byte aligned block. The radio acks every write; only some regions take effect. */
+  /**
+   * Write one 16-byte aligned block. The radio acks every write; only some regions take effect.
+   * Writes to 0x0E20 and 0x0E30 are staged in a zero-filled 32-byte buffer and reach EEPROM
+   * on the next write at 0x0E40; use writeSettings in radio.ts for that region.
+   */
   async writeBlock(addr: number, data: Uint8Array): Promise<void> {
     this.touch();
     this.transport.discard();
