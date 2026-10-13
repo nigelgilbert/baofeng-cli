@@ -34,6 +34,7 @@ baofeng tune 154.680 --channel 5
 baofeng tune 146.820 --channel 5 --offset -0.6 --tone 82.5 --name "BIG SKY"
 baofeng tune 462.5625 --channel 5 --narrow --low-power
 baofeng read 5
+baofeng erase 127
 baofeng key --seconds 2
 baofeng dump --out radio.img
 baofeng restore radio.img --force

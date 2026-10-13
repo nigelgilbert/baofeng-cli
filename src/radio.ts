@@ -162,6 +162,23 @@ export async function tune(transport: Transport, n: number, spec: ChannelSpec): 
   return writeChannel(s, n, spec);
 }
 
+/** Write 0xFF over a channel record and its name; reads back the record in the same session. */
+export async function eraseChannel(s: Session, n: number): Promise<void> {
+  checkChannelNumber(n);
+  const blank = new Uint8Array(16).fill(0xff);
+  await s.writeBlock(CHANNEL_BASE + n * 16, blank);
+  await s.writeBlock(NAME_BASE + n * 16, blank);
+  const back = await s.readBlock(CHANNEL_BASE + n * 16, 0x10);
+  if (hex(back) !== hex(blank)) throw new DeviceStateError(`channel ${n} did not take the erase`, { read: hex(back) });
+}
+
+/** Start a session and erase channel `n`; the radio applies it when the session ends. */
+export async function erase(transport: Transport, n: number): Promise<void> {
+  const s = new Session(transport);
+  await s.start();
+  await eraseChannel(s, n);
+}
+
 /** Full image in CHIRP layout: 8-byte ident, main 0x0000-0x17FF, aux 0x1EC0-0x1FFF. */
 export async function dumpImage(s: Session, onProgress?: (addr: number) => void): Promise<Uint8Array> {
   const ident = s.ident ?? (await s.start());

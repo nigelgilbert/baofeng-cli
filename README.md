@@ -46,6 +46,7 @@ baofeng tune 154.680 --channel 5              # write 154.680 into channel 5
 baofeng tune 146.820 --channel 5 --offset -0.6 --tone 82.5 --name "BIG SKY"
 baofeng tune 462.5625 --channel 5 --narrow --low-power
 baofeng read 5                                # read channel record 5
+baofeng erase 127                             # clear channel record 127 and its name
 baofeng key --seconds 2                       # DTR high, RTS low; releases on exit or Ctrl-C
 baofeng dump --out radio.img                  # full image, CHIRP layout, about 14 s
 baofeng restore radio.img --force             # main memory back from an image, about 30 s
@@ -91,7 +92,8 @@ The `note` field always reads "channelA/B are the values stored in EEPROM; the r
 display shows the channel the knob selected". Trust the display for the active channel.
 
 `tune` returns the written record plus `"appliesAfterSeconds": 3`. `read` returns the
-record, or `{"channel": N, "empty": true}`.
+record, or `{"channel": N, "empty": true}`. `erase` writes 0xFF over the record and the
+name and returns `{"channel": N, "empty": true, "appliesAfterSeconds": 3}`.
 
 `settings` with no arguments returns the eight fields. With `field value` pairs it writes
 and commits the block, waits for the reload, reads it back in a fresh session and returns

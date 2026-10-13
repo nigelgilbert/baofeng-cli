@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ADDR, encodeChannel, encodeName } from '../src/codec.ts';
 import { Session } from '../src/protocol.ts';
-import { STATUS_NOTE, channelPayload, readChannel, readStatus, tune, writeChannel } from '../src/radio.ts';
+import { STATUS_NOTE, channelPayload, readChannel, readStatus, tune, writeChannel, erase } from '../src/radio.ts';
 import { FakeRadio } from './fake.ts';
 
 /** Drop the clone session and start a new one, as the next CLI invocation does after the reload. */
@@ -11,6 +11,18 @@ async function nextSession(radio: FakeRadio): Promise<Session> {
   await s.start();
   return s;
 }
+
+describe('erase', () => {
+  it('clears the record and name so the channel reads empty in the next session', async () => {
+    const radio = new FakeRadio();
+    await tune(radio, 127, { rxHz: 435_725_000, name: 'JUNK' });
+    radio.dropSession();
+    await erase(radio, 127);
+    const s = await nextSession(radio);
+    expect(await readChannel(s, 127)).toBeUndefined();
+    expect(radio.eeprom.subarray(0x1000 + 127 * 16, 0x1000 + 128 * 16).every((b) => b === 0xff)).toBe(true);
+  });
+});
 
 describe('session', () => {
   it('handshakes and reads the firmware string', async () => {

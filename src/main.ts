@@ -20,6 +20,7 @@ import { Session } from './protocol.ts';
 import {
   channelPayload,
   dumpImage,
+  erase,
   holdPtt,
   imageSettingsBlock,
   readChannel,
@@ -52,6 +53,7 @@ const verbs: Record<string, Verb> = {
   status: { summary: 'Print firmware, work mode, stored channel numbers, squelch, voice, beep, abr and the active record: status', run: statusVerb },
   tune: { summary: 'Write a frequency into the channel the radio shows: tune 154.680 --channel 5 --tone 82.5', run: tuneVerb },
   read: { summary: 'Print one channel record: read 5', run: readVerb },
+  erase: { summary: 'Clear one channel record and its name: erase 127', run: eraseVerb },
   key: { summary: 'Key the transmitter for S seconds: key --seconds 2', run: keyVerb },
   dump: { summary: 'Save the full memory image: dump --out radio.img', run: dumpVerb },
   restore: { summary: 'Write the main memory of an image back: restore radio.img --force', run: restoreVerb },
@@ -200,6 +202,18 @@ async function readVerb(args: ParsedArgs): Promise<number> {
   });
   const result = channelPayload(n, ch);
   print(args, result, () => channelText(result));
+  return EXIT.ok;
+}
+
+async function eraseVerb(args: ParsedArgs): Promise<number> {
+  checkFlags('erase', args.flags, COMMON);
+  const numText = args.positionals[0];
+  if (numText === undefined) throw new UsageError('erase needs a channel number 0..127, as in: erase 127');
+  const n = parseDecimal(numText, 'channel');
+  checkChannelNumber(n);
+  await withTransport(args.flags, (t) => erase(t, n));
+  const result = { channel: n, empty: true, appliesAfterSeconds: APPLIES_AFTER_SECONDS };
+  print(args, result, () => `channel ${n} erased; the radio applies it about ${APPLIES_AFTER_SECONDS} s after this command ends`);
   return EXIT.ok;
 }
 

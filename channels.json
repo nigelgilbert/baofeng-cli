@@ -1,0 +1,12 @@
+{
+  "name": "Bench UV-5R channel plan, written 2026-10-13",
+  "notes": "Written with baofeng tune. Channels 4 and 5 need an amateur license to transmit; channel 6 needs a GMRS license. Use channel 4 first to call for help.",
+  "channels": [
+    { "channel": 1, "name": "NOAA 1", "rxMhz": 162.400, "notes": "NOAA Weather Radio, no audio in Big Sky on 2026-10-13" },
+    { "channel": 2, "name": "NOAA 2", "rxMhz": 162.475, "notes": "NOAA Weather Radio" },
+    { "channel": 3, "name": "NOAA 3", "rxMhz": 162.550, "notes": "NOAA Weather Radio" },
+    { "channel": 4, "name": "BIG SKY", "rxMhz": 146.820, "offsetMhz": -0.6, "tone": "82.5", "notes": "Big Sky 2 m repeater, first choice for a call for help" },
+    { "channel": 5, "name": "2M CALL", "rxMhz": 146.520, "notes": "National 2 m FM calling frequency, simplex fallback" },
+    { "channel": 6, "name": "GMRS 20", "rxMhz": 462.675, "tone": "141.3", "notes": "GMRS traveler assistance and emergency channel" }
+  ]
+}
